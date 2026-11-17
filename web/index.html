@@ -22,7 +22,7 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <div class="card"><div class="grid">
 <label class="drop" id="d1">1. Payout CSV files (CAMS and/or KFintech, pick several)<br><input type="file" id="f1" accept=".csv" multiple hidden><span class="note" id="n1">click to choose</span></label>
 <label class="drop" id="d2">2. Holdings file (optional, for client type)<br><input type="file" id="f2" hidden><span class="note" id="n2">click to choose .xls (DBF)</span></label>
-<label class="drop" id="d3">3. Extra rate cards (optional .json)<br><input type="file" id="f3" accept=".json" hidden><span class="note" id="n3">rates by AMC, same format as rates.js</span></label>
+<label class="drop" id="d3">3. Extra rate cards (optional)<br><input type="file" id="f3" accept=".json" hidden><span class="note" id="n3">JSON only (not PDF). Not needed: rate cards are built in</span></label>
 </div>
 <div class="row"><label>Lots traded on/after <input type="date" id="nf" value="2026-10-01"></label><span class="note">= confirmed (current-quarter) lots. Older lots are shown as pointers only, because AMCs often pay older lots on the rate in force at payout time.</span><button class="act" id="go">Run comparison</button></div>
 <div class="note" id="msg"></div></div>
@@ -42,16 +42,18 @@ function inr(n){return(n<0?'-':'')+'₹'+Math.round(Math.abs(n)).toLocaleString(
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function $(i){return document.getElementById(i)}
 function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
-$('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=[];S.ctrl=0;S.srcs=[];var left=files.length;
+$('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=S.rows||[];S.ctrl=S.ctrl||0;S.srcs=S.srcs||[];var left=files.length;$('msg').textContent='Reading '+files.length+' file(s)... large files can take 20-30 seconds';
   files.forEach(function(file){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result),kind='CAMS';
     if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
     else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
-    S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');
-    if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded'}};r.readAsText(file)})};
+    S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');e.target.value='';
+    if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'}};r.onerror=function(){$('msg').textContent='Could not read '+file.name};r.readAsText(file)})};
 pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){S.hold=BR.parseDBF(r.result);$('msg').textContent=S.hold.length.toLocaleString()+' holdings rows loaded'};r.readAsArrayBuffer(f)});
 pick('f3','d3','n3',function(f){var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);Object.keys(j).forEach(function(k){S.rates[k]=j[k]});$('msg').textContent='Extra rate cards added: '+Object.keys(j).join(', ')}catch(e){$('msg').textContent='Could not read rate file: '+e.message}};r.readAsText(f)});
-$('go').onclick=function(){
-  if(!S.rows){$('msg').textContent='Choose the payout CSV first.';return}
+$('go').onclick=function(){try{runIt()}catch(e){$('msg').textContent='Error: '+e.message;console.error(e)}};
+function runIt(){
+  if(!S.rows||!S.rows.length){$('msg').textContent='No payout file loaded yet. Use box 1 for the payout CSV (CAMS or KFintech); box 2 is only for the holdings file.';return}
+  $('msg').textContent='Running...';
   var ft={};if(S.hold)S.hold.forEach(function(h){if(h.FOLIOCHK&&!ft[h.FOLIOCHK])ft[h.FOLIOCHK]=BR.clientType(h.TAX_STATUS)});
   var codes={};S.rows.forEach(function(r){codes[r.AMC_CODE]=1});
   S.lots=[];S.amcTot={};
@@ -63,8 +65,8 @@ $('go').onclick=function(){
     S.lots=S.lots.concat(lots);
   });
   $('out').style.display='block';$('src').textContent=Object.keys(S.rates).map(function(k){return window.AMCNAMES[k]||k}).join(', ');
-  kpis();tabs();render();
-};
+  kpis();tabs();render();$('msg').textContent='Done: '+S.lots.length.toLocaleString()+' lots across '+Object.keys(codes).length+' AMC codes.';
+}
 function kpis(){
   var t=0,a=0,i=0,e=0,cs=0,pp=0,cn=0,pn=0,ct=0;
   S.lots.forEach(function(L){t+=L.trail;a+=L.add;i+=L.inc;if(!(L.amc[0]=='K'&&BR.KF_AMC[L.amc.slice(1)]))ct+=L.trail+L.add+L.inc;if(L.status=='below'){if(L.isNew){cs+=-L.diff;cn++}else{pp+=-L.diff;pn++}}if(L.exp!==null)e+=L.exp});
