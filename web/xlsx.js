@@ -41,6 +41,8 @@
       rows.push(cells);
     }
     if (!rows.length) return [];
+    var hi = 0; for (var q = 0; q < Math.min(rows.length, 40); q++) { var rr = rows[q].filter(function (v) { return v !== undefined && v !== ''; }); if (rr.length >= 5 && rr.some(function (v) { return /brokerage|folio|scheme/i.test(v); })) { hi = q; break; } }
+    rows = rows.slice(hi);
     var head = rows.shift().map(function (h) { return String(h === undefined ? '' : h).trim(); });
     var dcols = head.map(function (h, i) { return /date/i.test(h) ? i : -1; }).filter(function (i) { return i >= 0; });
     return rows.filter(function (r) { return r.some(function (x) { return x !== undefined && x !== ''; }); }).map(function (r) {

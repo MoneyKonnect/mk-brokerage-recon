@@ -84,7 +84,7 @@
   function compare(lots, cfg, newFrom) {
     var nf = newFrom ? pd(newFrom) : null;
     lots.forEach(function (L) {
-      L.abbr = cfg.schemeMap[L.scheme.replace(/^0+/, '')] || cfg.schemeMap[L.scheme.replace(/^[A-Z]+/, '').replace(/^0+/, '')] || null;
+      L.abbr = (/[a-z]{4,} /i.test(L.scheme) ? matchName(L.scheme, cfg.names) : null) || cfg.schemeMap[L.scheme.replace(/^0+/, '')] || cfg.schemeMap[L.scheme.replace(/^[A-Z]+/, '').replace(/^0+/, '')] || null;
       L.fund = L.abbr ? (cfg.names[L.abbr] || L.abbr) : 'Unmapped scheme ' + L.scheme;
       L.q = L.td ? qkey(L.td) : null;
       var card = L.abbr && L.q && cfg.rates[L.abbr] ? cfg.rates[L.abbr][L.q] : undefined;
@@ -138,6 +138,31 @@
     if (!fc) return { rows: [], note: 'No folio column found. Columns: ' + cols.slice(0, 15).join(', ') };
     return { rows: rows.map(function (r) { return { FOLIOCHK: String(r[fc]).replace(/\.0$/, ''), TAX_STATUS: tc ? r[tc] : '' }; }), note: tc ? '' : 'No client-type column found (folio only)' };
   }
-  root.BR = { normalizeHoldings: normalizeHoldings, KF_AMC: KF_AMC, isKfin: isKfin, normalizeKfin: normalizeKfin, parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
+
+  // "Sub Broker Transaction wise" report (scheme names, year-wise trail labels, no transaction number)
+  var SB_AMC = [['hdfc','H'],['dsp','D'],['helios','HLS'],['bandhan','G'],['franklin','FTI'],['templeton','FTI'],['hsbc','O'],['icici','P'],['kotak','K'],['whiteoak','Y'],['sbi','L'],['union','UK'],['tata','T'],['aditya','B'],['360','IF'],['parag','PP']];
+  function sbAmc(name) { var w = (name || '').trim().split(/\s+/)[0].toLowerCase(); for (var i = 0; i < SB_AMC.length; i++) if (w === SB_AMC[i][0]) return SB_AMC[i][1]; return 'S:' + (name || '?').trim().split(/\s+/)[0]; }
+  function isSubBroker(rows) { return rows.length && rows[0].hasOwnProperty('Brokerage amount') && rows[0].hasOwnProperty('Scheme name') && rows[0].hasOwnProperty('Folio number'); }
+  function normalizeSubBroker(rows) {
+    return rows.filter(function (r) { return r['Scheme name'] && r['Folio number']; }).map(function (r) {
+      var f = dmy(String(r['Brokerage From date'] || '')), t = dmy(String(r['Brokerage To date'] || '')), days = (f && t) ? Math.round((new Date(t) - new Date(f)) / 864e5) + 1 : 0;
+      var typ = r['Brokerage type'] || '', td = dmy(String(r['Transaction date'] || ''));
+      return { AMC_CODE: sbAmc(r['Scheme name']), FOLIO_NO: String(r['Folio number']), SCHEME_COD: r['Scheme name'], TRXN_NO: [td, r['Transaction amount'], r['Transaction units']].join('/'),
+        BRKAGE_FRO: f, BRKAGE_TO: t, AVG_ASSETS: r['Average asset'], BRKAGE_RAT: r['Brokerage rate'], BRKAGE_AMT: r['Brokerage amount'], NO_OF_DAYS: days, TRADE_DATE: td,
+        INV_NAME: r['Investor name'], TRXN_TYPE: r['Transaction type'], TRXN_DESC: /add|incentive/i.test(typ) ? 'Additional ' + typ : typ, BRKAGE_TYP: /^others$/i.test(typ) ? 'IT' : 'TF', TRAIL_YEAR: typ, ISNAME: true };
+    });
+  }
+  // name -> card abbreviation (fuzzy, for payout files that carry scheme names instead of codes)
+  function normName(s) { return (s || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9& ]/g, ' ').replace(/\b(fund|plan|regular|growth|option|direct|idcw|payout|reinvestment|scheme|the|of|and|erstwhile|formerly|franklin|templeton|india)\b/g, ' ').replace(/&/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function matchName(name, names) {
+    var a = normName(name).split(' ').filter(Boolean), best = null, bs = 0;
+    Object.keys(names).forEach(function (k) {
+      var b = normName(names[k]).split(' ').filter(Boolean), inter = a.filter(function (x) { return b.indexOf(x) >= 0; }).length, uni = a.length + b.length - inter, sc = uni ? inter / uni : 0;
+      if (sc > bs) { bs = sc; best = k; }
+    });
+    return bs >= 0.5 ? best : null;
+  }
+
+  root.BR = { isSubBroker: isSubBroker, normalizeSubBroker: normalizeSubBroker, matchName: matchName, normalizeHoldings: normalizeHoldings, KF_AMC: KF_AMC, isKfin: isKfin, normalizeKfin: normalizeKfin, parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
   if (typeof module !== 'undefined') module.exports = root.BR;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -45,10 +45,11 @@ function $(i){return document.getElementById(i)}
 function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
 $('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=S.rows||[];S.ctrl=S.ctrl||0;S.srcs=S.srcs||[];var left=files.length;$('msg').textContent='Reading '+files.length+' file(s)... large files can take 20-30 seconds';
   files.forEach(function(file){var r=new FileReader(),isX=/\.xlsx$/i.test(file.name);
-    var done=function(){if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'}};
-    var handle=function(all){var kind='CAMS';var okp=all.length&&(BR.isKfin(all)||all[0].hasOwnProperty('AMC_CODE')&&all[0].hasOwnProperty('BRKAGE_AMT'));
+    var done=function(){if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'+(S.sbn&&S.ctrl?' WARNING: you loaded both a CAMS CSV and a Sub Broker report. They hold the same payout, so use only one of them or the totals double.':'')}};
+    var handle=function(all){var kind='CAMS';var okp=all.length&&(BR.isKfin(all)||BR.isSubBroker(all)||all[0].hasOwnProperty('AMC_CODE')&&all[0].hasOwnProperty('BRKAGE_AMT'));
       if(!okp){S.srcs.push(file.name+' (NOT A PAYOUT FILE, skipped: '+(all.length?Object.keys(all[0]).slice(0,6).join(', '):'empty')+')');return done()}
       if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
+      else if(BR.isSubBroker(all)){kind='Sub Broker Transaction wise';S.rows=S.rows.concat(BR.normalizeSubBroker(all));S.sbn=(S.sbn||0)+1}
       else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
       S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');done()};
     r.onerror=function(){S.srcs.push(file.name+' (could not read)');done()};
