@@ -20,7 +20,7 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <header><h1>Brokerage Reconciliation</h1><span>MoneyKonnect LLP · ARN-263998 · files are processed in your browser and never uploaded</span></header>
 <main>
 <div class="card"><div class="grid">
-<label class="drop" id="d1">1. Payout CSV files (CAMS and/or KFintech, pick several)<br><input type="file" id="f1" accept=".csv" multiple hidden><span class="note" id="n1">click to choose</span></label>
+<label class="drop" id="d1">1. Payout files: CSV or Excel (.xlsx), CAMS and/or KFintech<br><input type="file" id="f1" accept=".csv,.xlsx" multiple hidden><span class="note" id="n1">click to choose</span></label>
 <label class="drop" id="d2">2. Holdings file (optional, for client type)<br><input type="file" id="f2" hidden><span class="note" id="n2">click to choose .xls (DBF)</span></label>
 <label class="drop" id="d3">3. Rate card PDFs (optional)<br><input type="file" id="f3" accept=".pdf,.json" multiple hidden><span class="note" id="n3">Franklin PDFs work now; other AMCs being added. Franklin cards to Dec-2026 are built in</span></label>
 </div>
@@ -34,7 +34,7 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <div class="wrap"><table id="tbl"></table></div>
 <p class="note">Expected = average assets × card rate ÷ 100 × days ÷ 365. Additional brokerage is intentional and added to the same folio + scheme. Only trail is compared with the card. Rate cards loaded: <span id="src"></span></p>
 </div></main>
-<script src="rates.js"></script><script src="core.js"></script><script src="cards.js"></script>
+<script src="rates.js"></script><script src="core.js"></script><script src="cards.js"></script><script src="xlsx.js"></script>
 <script type="module">import * as p from "./vendor/pdf.mjs";p.GlobalWorkerOptions.workerSrc="./vendor/pdf.worker.mjs";window.PDFJS=p;</script>
 <script>
 Object.keys(BR.KF_AMC).forEach(function(k){window.AMCNAMES['K'+k]=BR.KF_AMC[k]});
@@ -44,11 +44,17 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function $(i){return document.getElementById(i)}
 function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
 $('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=S.rows||[];S.ctrl=S.ctrl||0;S.srcs=S.srcs||[];var left=files.length;$('msg').textContent='Reading '+files.length+' file(s)... large files can take 20-30 seconds';
-  files.forEach(function(file){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result),kind='CAMS';var okp=all.length&&(BR.isKfin(all)||all[0].hasOwnProperty('AMC_CODE')&&all[0].hasOwnProperty('BRKAGE_AMT'));if(!okp){S.srcs.push(file.name+' (NOT A PAYOUT FILE, skipped: '+(all.length?Object.keys(all[0]).slice(0,6).join(', '):'empty')+')');if(--left==0){$('n1').textContent=S.srcs.join('; ');$('msg').textContent='Skipped a file that is not a CAMS or KFintech brokerage payout report. '+S.rows.length.toLocaleString()+' payout rows loaded so far.'}return}
-    if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
-    else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
-    S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');e.target.value='';
-    if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'}};r.onerror=function(){$('msg').textContent='Could not read '+file.name};r.readAsText(file)})};
+  files.forEach(function(file){var r=new FileReader(),isX=/\.xlsx$/i.test(file.name);
+    var done=function(){if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'}};
+    var handle=function(all){var kind='CAMS';var okp=all.length&&(BR.isKfin(all)||all[0].hasOwnProperty('AMC_CODE')&&all[0].hasOwnProperty('BRKAGE_AMT'));
+      if(!okp){S.srcs.push(file.name+' (NOT A PAYOUT FILE, skipped: '+(all.length?Object.keys(all[0]).slice(0,6).join(', '):'empty')+')');return done()}
+      if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
+      else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
+      S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');done()};
+    r.onerror=function(){S.srcs.push(file.name+' (could not read)');done()};
+    if(isX){r.onload=function(){XLSXR.readXlsx(r.result).then(handle).catch(function(err){S.srcs.push(file.name+' (Excel read failed: '+err.message+'. Save as .xlsx or CSV)');done()})};r.readAsArrayBuffer(file)}
+    else{r.onload=function(){handle(BR.parseCSV(r.result))};r.readAsText(file)}
+  });e.target.value=''};
 pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){var buf=r.result,h=null,note='';
   try{h=BR.parseDBF(buf)}catch(e){var txt=new TextDecoder('utf-8').decode(buf);var n=BR.normalizeHoldings(BR.parseCSV(txt));h=n.rows;note=n.note}
   S.hold=h;$('msg').textContent=h.length.toLocaleString()+' holdings rows loaded'+(note?'. Note: '+note:'')};r.onerror=function(){$('msg').textContent='Could not read holdings file'};r.readAsArrayBuffer(f)});

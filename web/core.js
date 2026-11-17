@@ -117,7 +117,7 @@
   
   // KFintech brokerage report -> same internal row shape as the CAMS report
   var KF_AMC = {'117':'Mirae Asset','118':'Edelweiss','120':'Invesco','RMF':'Nippon India','128':'Axis','127':'Motilal Oswal','176':'Sundaram','116':'Bank of India','166':'Quant','108':'UTI','129':'PGIM India','906':'Altiva (Edelweiss SIF)','152':'ITI','172':'Abakkus','908':'Diviniti','101':'Canara Robeco','105':'JM Financial','178':'Baroda BNP Paribas'};
-  function dmy(s) { var m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2) : ''; }
+  function dmy(s) { if (/^\d{4}-\d{2}-\d{2}/.test(s || '')) return s.slice(0, 10); var m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2) : ''; }
   function isKfin(rows) { return rows.length && rows[0].hasOwnProperty('Product Code') && rows[0].hasOwnProperty('Brokerage (in Rs.)'); }
   function normalizeKfin(rows) {
     return rows.filter(function (r) { return r['Fund']; }).map(function (r) {
