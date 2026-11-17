@@ -1,0 +1,87 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MF brokerage reconciliation - Oct 2026</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:auto;padding:24px;color:#1f1f1c;background:#faf9f5;max-width:1040px}
+h1{font-size:20px;font-weight:500;margin:0 0 4px}.sub{font-size:13px;color:#6b6a63;margin:0 0 16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 16px}
+.card{background:#fff;border:.5px solid #d9d7cc;border-radius:10px;padding:12px 14px}.card b{display:block;font-size:22px;font-weight:500}.card span{font-size:12px;color:#6b6a63}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 10px;font-size:13px}
+select,button{font:inherit;padding:6px 10px;border:.5px solid #b9b7ab;border-radius:8px;background:#fff}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;background:#fff;border:.5px solid #d9d7cc}
+th{background:#f1efe8;font-weight:500;padding:9px 10px;text-align:right;color:#5f5e5a}td{padding:9px 10px;border-top:.5px solid #e6e4da;text-align:right;vertical-align:top}
+th:first-child,td:first-child{text-align:left;width:38%}.m{font-size:12px;color:#6b6a63}
+tr.cl{cursor:pointer}tr.cl:hover{background:#faf9f5}a{color:#185fa5;cursor:pointer}
+.b{font-size:12px;padding:2px 8px;border-radius:8px;white-space:nowrap}.ok{background:#eaf3de;color:#27500a}.bad{background:#fcebeb;color:#791f1f}.warn{background:#faeeda;color:#633806}.gr{background:#f1efe8;color:#444441}
+.lt{font-size:12px;table-layout:auto;border:0;margin:6px 0}.lt th,.lt td{padding:5px 8px;border-top:.5px solid #e6e4da}.lt th:first-child,.lt td:first-child{width:auto;text-align:left}.lt tr.x td{background:#fcebeb}.sub2{padding:0 10px 10px!important;background:#faf9f5;text-align:left!important;overflow-x:auto}
+.note{background:#fff;border:.5px solid #d9d7cc;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;margin:16px 0 0}.note li{margin:0 0 4px}
+</style></head><body>
+<h1>MF brokerage reconciliation</h1><p class="sub">October 2026 payout, processed Nov 2026 · Franklin Templeton checked against the Oct-Dec 2026 rate card · other AMCs shown as received only</p>
+<div class="cards" id="cards"></div>
+<div class="bar"><label>Strategy <select id="fs"><option>All</option><option>Equity</option><option>Hybrid</option><option>Debt</option></select></label>
+<label>Client type <select id="fc"><option>All</option><option>Individual</option><option>HUF</option><option>Minor</option><option>NRI</option><option>Company</option><option>Trust</option><option>Other</option></select></label>
+<label><input type="checkbox" id="fo"> Flagged only</label><button id="ex" style="margin-left:auto">Download flagged lots (CSV)</button></div>
+<div style="display:flex;justify-content:space-between;font-size:14px;margin:0 0 8px"><div id="crumb"></div><div id="vm"></div></div>
+<table><thead><tr><th id="h0">AMC</th><th>Trail received</th><th>Additional</th><th>Confirmed short</th><th style="width:19%">Status</th></tr></thead><tbody id="tb"></tbody></table>
+<div class="note"><b>How to read this</b><ul id="notes"></ul></div>
+<script>
+var DATA=__DATA__;
+var LOTS=__LOTS__;
+var OPEN={};
+var CT={Individual:1,HUF:1,Minor:1,NRI:1,Company:1,Trust:1};
+var R=DATA.rows.map(function(r){return{fund:r[0],str:r[1],ct:CT[r[2]]?r[2]:(/Company|Corporate/.test(r[2])?'Company':'Other'),name:r[3],folio:r[4],aum:r[5],trail:r[6],add:r[7],conf:r[8],n:r[9],nn:r[10],gl:r[11],cr:r[12],np:r[13],cexp:r[14]}});
+var S={lv:0,mode:"scheme",k:null};
+function inr(n){return(n<0?"-":"")+"₹"+Math.round(Math.abs(n)).toLocaleString("en-IN")}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;")}
+function badge(c,t){return'<span class="b '+c+'">'+t+'</span>'}
+function st(r){if(r.np)return["warn","Held, no payout"];if(r.conf>1)return["bad","Short paid"];if(r.n>r.nn)return["gr","Older lots need cards"];return["ok","OK"]}
+function flagged(r){var s=st(r)[1];return s=="Short paid"||s=="Held, no payout"}
+function rows(){var a=document.getElementById("fs").value,b=document.getElementById("fc").value,o=document.getElementById("fo").checked;
+return R.filter(function(r){return(a=="All"||r.str==a)&&(b=="All"||r.ct==b)&&(!o||flagged(r))})}
+function agg(l,kf,lf){var m={},o=[];l.forEach(function(r){var x=kf(r);if(!m[x]){m[x]={k:x,lab:lf(r),trail:0,add:0,conf:0,n:0,f:0,sch:{}};o.push(m[x])}var g=m[x];g.trail+=r.trail;g.add+=r.add;g.conf+=r.conf;g.n++;g.sch[r.fund]=1;if(flagged(r))g.f++});return o}
+function stBadge(g){return g.f?badge("bad",g.f+" flagged"):badge("ok","OK")}
+function render(){
+var all=rows(),T={trail:0,add:0,conf:0,f:0};all.forEach(function(r){T.trail+=r.trail;T.add+=r.add;T.conf+=r.conf;if(flagged(r))T.f++});
+document.getElementById("cards").innerHTML=[["Franklin trail received",inr(T.trail)],["Additional received",inr(T.add)],["Confirmed short",inr(T.conf)],["Rows flagged",T.f]].map(function(c){return'<div class="card"><span>'+c[0]+'</span><b>'+c[1]+'</b></div>'}).join("");
+var cr='<a onclick="go(0)">All AMCs</a>';if(S.lv>=1)cr+=' / '+(S.lv==1?'Franklin Templeton':'<a onclick="go(1)">Franklin Templeton</a>');if(S.lv>=2)cr+=' / '+esc(S.lab);
+document.getElementById("crumb").innerHTML=cr;
+document.getElementById("vm").innerHTML=S.lv>=1?'View by '+(S.mode=="scheme"?'<b>scheme</b>':'<a onclick="sm(\'scheme\')">scheme</a>')+' | '+(S.mode=="client"?'<b>client</b>':'<a onclick="sm(\'client\')">client</a>'):'';
+var h="AMC",html="";
+if(S.lv==0){
+var t={trail:T.trail,add:T.add,conf:T.conf,n:all.length,f:T.f};
+html+='<tr class="cl" onclick="drill()"><td>Franklin Templeton<div class="m">'+t.n+' folio-scheme rows · rate card loaded</div></td><td>'+inr(t.trail)+'</td><td>'+inr(t.add)+'</td><td>'+inr(t.conf)+'</td><td>'+stBadge(t)+'</td></tr>';
+DATA.oth.slice().sort(function(a,b){return b[1]-a[1]}).forEach(function(o){html+='<tr><td>'+o[0]+'<div class="m">'+o[2]+' payout rows</div></td><td>'+inr(o[1])+'</td><td>-</td><td>-</td><td>'+badge("gr","No rate card yet")+'</td></tr>'})}
+else if(S.lv==1){
+var gs=S.mode=="scheme"?agg(all,function(r){return r.fund},function(r){return r.fund}):agg(all,function(r){return r.folio},function(r){return r.name+' · '+r.ct+' · folio '+r.folio});
+h=S.mode=="scheme"?"Scheme":"Client / folio";
+gs.sort(function(a,b){return b.conf-a.conf||b.trail-a.trail}).forEach(function(g){var sub=S.mode=="scheme"?g.n+' folios':Object.keys(g.sch).length+' scheme'+(Object.keys(g.sch).length>1?'s':'');
+html+='<tr class="cl" data-k="'+esc(g.k)+'" data-l="'+esc(g.lab)+'" onclick="drill(this.dataset.k,this.dataset.l)"><td>'+esc(g.lab)+'<div class="m">'+sub+'</div></td><td>'+inr(g.trail)+'</td><td>'+inr(g.add)+'</td><td>'+inr(g.conf)+'</td><td>'+stBadge(g)+'</td></tr>'})}
+else{h=S.mode=="scheme"?"Client / folio":"Scheme";
+all.filter(function(r){return S.mode=="scheme"?r.fund==S.k:r.folio==S.k}).sort(function(a,b){return b.conf-a.conf||b.trail-a.trail}).forEach(function(r){var s=st(r),key=r.folio+'|'+r.fund;
+var lab=S.mode=="scheme"?esc(r.name)+' · '+r.ct:esc(r.fund);
+var sub='Folio '+r.folio+' · AUM '+inr(r.aum)+(r.np?' · trail at card would be about '+inr(r.cexp):' · '+r.n+' lots ('+r.nn+' new) · card '+r.cr+'%');
+html+='<tr class="cl" data-k="'+esc(key)+'" onclick="tg(this.dataset.k)"><td>'+lab+'<div class="m">'+sub+'</div></td><td>'+inr(r.trail)+'</td><td>'+inr(r.add)+'</td><td>'+inr(r.conf)+'</td><td>'+badge(s[0],s[1])+'</td></tr>'+(OPEN[key]?lotsHtml(key):'')})}
+document.getElementById("h0").textContent=h;document.getElementById("tb").innerHTML=html||'<tr><td colspan="5" style="text-align:center;color:#6b6a63">Nothing matches these filters.</td></tr>'}
+function lotsHtml(k){var L=LOTS[k];if(!L)return'<tr><td colspan="5" class="sub2 m">No payout lots. Units are held but Franklin paid nothing this month.</td></tr>';
+var t='<tr><td colspan="5" class="sub2"><table class="lt"><thead><tr><th>Trade date</th><th>Type</th><th>Avg AUM</th><th>Days</th><th>Card rate that applies</th><th>Trail paid</th><th>Additional paid</th><th>Same-month peers</th><th>Trail received</th><th>At card</th></tr></thead><tbody>';
+L.forEach(function(x){var bad=(x[9]&&x[4]!==null&&x[4]<x[5]-0.005)||(x[6]!==null&&x[4]!==null&&x[4]<x[6]-0.005);
+t+='<tr'+(bad?' class="x"':'')+'><td>'+x[0]+(x[9]?' <span class="b ok">new</span>':'')+'</td><td>'+x[1]+'</td><td>'+inr(x[2])+'</td><td>'+x[3]+'</td><td>'+(x[9]?x[5]+'%':'<span class="m">card for '+x[12]+' needed</span>')+'</td><td>'+(x[4]===null?'-':x[4]+'%')+'</td><td>'+(x[10]?x[10]+'% ('+inr(x[11])+')':'-')+'</td><td>'+(x[6]===null?'-':x[6]+'%')+'</td><td>'+inr(x[7])+'</td><td>'+(x[8]===null?'-':inr(x[8]))+'</td></tr>'});
+return t+'</tbody></table></td></tr>'}
+function tg(k){OPEN[k]=!OPEN[k];render()}
+function drill(k,l){if(S.lv==0){S.lv=1}else if(S.lv==1){S.k=k;S.lab=l;S.lv=2}render()}
+function go(l){S.lv=l;render()}
+function sm(m){S.mode=m;S.lv=1;render()}
+["fs","fc","fo"].forEach(function(i){document.getElementById(i).addEventListener("change",render)});
+function q(x){return'"'+String(x).replace(/"/g,'""')+'"'}
+document.getElementById("ex").onclick=function(){var l=["Scheme,Client,Client type,Folio,Trade date,Txn type,Avg AUM,Days,Card rate % (new lots),Trail paid %,Additional paid %,Peer rate %,Trail received,Additional received"];
+rows().filter(flagged).forEach(function(r){var L=LOTS[r.folio+"|"+r.fund]||[];if(!L.length)l.push([r.fund,r.name,r.ct,r.folio,"","","","","","","","",0,0].map(q).join(","));
+L.forEach(function(x){l.push([r.fund,r.name,r.ct,r.folio,x[0],x[1],x[2],x[3],x[9]?x[5]:"",x[4]===null?"":x[4],x[10]||"",x[6]===null?"":x[6],x[7],x[11]].map(q).join(","))})});
+var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([l.join("\n")],{type:"text/csv"}));a.download="flagged_lots.csv";a.click()};
+var M=DATA.meta;document.getElementById("notes").innerHTML=
+'<li>One folio can hold several schemes. Rows are kept per folio and scheme, and the client view groups them back under the folio.</li>'+
+'<li>Trail and Additional brokerage are separate. Only trail is compared with the card, because the card lists base trail only. Additional is shown as paid. '+M.addonly+' lots had an Additional row and no trail row.</li>'+
+'<li>The rate that applies to a lot is the rate in force on its trade date: the SIP installment date, or the lump-sum purchase date, and it stays until redemption. The Oct-Dec 2026 card therefore covers only the '+M.nnew+' of '+M.nlots+' lots traded on or after 1-Oct-2026.</li>'+
+'<li>The other lots span '+M.nq+' quarters back to '+M.oldest+'. Each needs the card of its own trade quarter. The biggest by trail received: '+M.top.map(function(x){return x[0]+' ('+inr(x[1])+')'}).join(', ')+'.</li>'+
+'<li><b>Confirmed short</b> = new lots paid below the card, plus older lots whose trail rate is lower than other lots of the same scheme and trade month. The second part is a pointer, and the old card for that month will confirm it.</li>'+
+'<li>'+M.gl+' lots are paid trail at about card + 18%. Worth confirming with Franklin whether the base is GST-inclusive.</li>'+
+'<li>"Held, no payout" uses the 12-Nov holdings file. Units bought after October may not have earned trail yet. Incentive rows ('+inr(M.inc)+') and '+M.nomap+' holdings with no card line are left out.</li>';
+render();
+</script></body></html>

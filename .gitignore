@@ -1,0 +1,15 @@
+# Never commit client data or raw AMC files
+*.csv
+*.xls
+*.xlsx
+*.dbf
+*.pkl
+*.zip
+*.pdf
+*.txt
+out/
+data/
+.env
+node_modules/
+.vercel/
+!rates/*.json
