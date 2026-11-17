@@ -20,7 +20,7 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <header><h1>Brokerage Reconciliation</h1><span>MoneyKonnect LLP · ARN-263998 · files are processed in your browser and never uploaded</span></header>
 <main>
 <div class="card"><div class="grid">
-<label class="drop" id="d1">1. Payout CSV (CAMS brokerage report)<br><input type="file" id="f1" accept=".csv" hidden><span class="note" id="n1">click to choose</span></label>
+<label class="drop" id="d1">1. Payout CSV files (CAMS and/or KFintech, pick several)<br><input type="file" id="f1" accept=".csv" multiple hidden><span class="note" id="n1">click to choose</span></label>
 <label class="drop" id="d2">2. Holdings file (optional, for client type)<br><input type="file" id="f2" hidden><span class="note" id="n2">click to choose .xls (DBF)</span></label>
 <label class="drop" id="d3">3. Extra rate cards (optional .json)<br><input type="file" id="f3" accept=".json" hidden><span class="note" id="n3">rates by AMC, same format as rates.js</span></label>
 </div>
@@ -36,12 +36,18 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 </div></main>
 <script src="rates.js"></script><script src="core.js"></script>
 <script>
+Object.keys(BR.KF_AMC).forEach(function(k){window.AMCNAMES['K'+k]=BR.KF_AMC[k]});
 var S={rows:null,hold:null,rates:JSON.parse(JSON.stringify(window.RATES)),lots:[],tab:'amc',sort:null};
 function inr(n){return(n<0?'-':'')+'₹'+Math.round(Math.abs(n)).toLocaleString('en-IN')}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function $(i){return document.getElementById(i)}
 function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
-pick('f1','d1','n1',function(f){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result);S.ctrl=0;all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=all.filter(function(x){return x.AMC_CODE});$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded'};r.readAsText(f)});
+$('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=[];S.ctrl=0;S.srcs=[];var left=files.length;
+  files.forEach(function(file){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result),kind='CAMS';
+    if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
+    else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
+    S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');
+    if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded'}};r.readAsText(file)})};
 pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){S.hold=BR.parseDBF(r.result);$('msg').textContent=S.hold.length.toLocaleString()+' holdings rows loaded'};r.readAsArrayBuffer(f)});
 pick('f3','d3','n3',function(f){var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);Object.keys(j).forEach(function(k){S.rates[k]=j[k]});$('msg').textContent='Extra rate cards added: '+Object.keys(j).join(', ')}catch(e){$('msg').textContent='Could not read rate file: '+e.message}};r.readAsText(f)});
 $('go').onclick=function(){
@@ -60,9 +66,9 @@ $('go').onclick=function(){
   kpis();tabs();render();
 };
 function kpis(){
-  var t=0,a=0,i=0,e=0,cs=0,pp=0,cn=0,pn=0;
-  S.lots.forEach(function(L){t+=L.trail;a+=L.add;i+=L.inc;if(L.status=='below'){if(L.isNew){cs+=-L.diff;cn++}else{pp+=-L.diff;pn++}}if(L.exp!==null)e+=L.exp});
-  var k=[['Trail received',inr(t),S.lots.length.toLocaleString()+' lots, all AMCs'],['Additional received',inr(a),'added to same folio + scheme'],['Incentive / other',inr(i),'not compared'],['Payout file check',inr(t+a+i),S.ctrl?('file total '+inr(S.ctrl)+(Math.abs(S.ctrl-(t+a+i))<2?' - matches':' - DIFFERENCE '+inr(S.ctrl-(t+a+i)))):'no total row in file'],
+  var t=0,a=0,i=0,e=0,cs=0,pp=0,cn=0,pn=0,ct=0;
+  S.lots.forEach(function(L){t+=L.trail;a+=L.add;i+=L.inc;if(!(L.amc[0]=='K'&&BR.KF_AMC[L.amc.slice(1)]))ct+=L.trail+L.add+L.inc;if(L.status=='below'){if(L.isNew){cs+=-L.diff;cn++}else{pp+=-L.diff;pn++}}if(L.exp!==null)e+=L.exp});
+  var k=[['Trail received',inr(t),S.lots.length.toLocaleString()+' lots, all AMCs'],['Additional received',inr(a),'added to same folio + scheme'],['Incentive / other',inr(i),'not compared'],['CAMS file check',inr(ct),S.ctrl?('file total '+inr(S.ctrl)+(Math.abs(S.ctrl-ct)<2?' - matches':' - DIFFERENCE '+inr(S.ctrl-ct))):'no total row in file'],
   ['Confirmed short',inr(cs),cn+' lots in the new quarter'],['Pointers (older lots)',inr(pp),pn+' lots paid below their own-quarter card']];
   $('kpis').innerHTML=k.map(function(x){return'<div class="kpi"><small>'+x[0]+'</small><b>'+x[1]+'</b><small>'+x[2]+'</small></div>'}).join('')}
 function tabs(){var T=[['amc','By AMC'],['fund','By scheme'],['client','By client'],['lots','Lots']];

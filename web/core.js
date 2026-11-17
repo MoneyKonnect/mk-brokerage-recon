@@ -112,6 +112,22 @@
     return Object.keys(m).map(function (k) { return m[k]; });
   }
 
-  root.BR = { parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
+  
+  // KFintech brokerage report -> same internal row shape as the CAMS report
+  var KF_AMC = {'117':'Mirae Asset','118':'Edelweiss','120':'Invesco','RMF':'Nippon India','128':'Axis','127':'Motilal Oswal','176':'Sundaram','116':'Bank of India','166':'Quant','108':'UTI','129':'PGIM India','906':'Altiva (Edelweiss SIF)','152':'ITI','172':'Abakkus','908':'Diviniti','101':'Canara Robeco','105':'JM Financial','178':'Baroda BNP Paribas'};
+  function dmy(s) { var m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2) : ''; }
+  function isKfin(rows) { return rows.length && rows[0].hasOwnProperty('Product Code') && rows[0].hasOwnProperty('Brokerage (in Rs.)'); }
+  function normalizeKfin(rows) {
+    return rows.filter(function (r) { return r['Fund']; }).map(function (r) {
+      var f = dmy(r['From Date']), t = dmy(r['To Date']), days = (f && t) ? Math.round((new Date(t) - new Date(f)) / 864e5) + 1 : 0;
+      var head = r['Brokerage Head'] || '';
+      return { AMC_CODE: 'K' + r['Fund'], FOLIO_NO: r['Account Number'], SCHEME_COD: r['Scheme Code'] || r['Product Code'], TRXN_NO: r['Transaction Number'],
+        BRKAGE_FRO: f, BRKAGE_TO: t, AVG_ASSETS: r['Average Assets'], BRKAGE_RAT: r['Percentage (%)'], BRKAGE_AMT: r['Brokerage (in Rs.)'], NO_OF_DAYS: days,
+        TRADE_DATE: dmy(r['PURCHASE TRXN DATE'] || r['Transaction Date']), INV_NAME: r['Investor Name'], TRXN_TYPE: r['Transaction Description'],
+        TRXN_DESC: /add/i.test(head) ? 'Additional ' + head : head, BRKAGE_TYP: 'TF', TAX_STATUS: r['Investor Category'], NOTPAID: /not paid/i.test(r['Brokerage Type'] || '') };
+    });
+  }
+
+  root.BR = { KF_AMC: KF_AMC, isKfin: isKfin, normalizeKfin: normalizeKfin, parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
   if (typeof module !== 'undefined') module.exports = root.BR;
 })(typeof window !== 'undefined' ? window : globalThis);
