@@ -22,7 +22,7 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <div class="card"><div class="grid">
 <label class="drop" id="d1">1. Payout CSV files (CAMS and/or KFintech, pick several)<br><input type="file" id="f1" accept=".csv" multiple hidden><span class="note" id="n1">click to choose</span></label>
 <label class="drop" id="d2">2. Holdings file (optional, for client type)<br><input type="file" id="f2" hidden><span class="note" id="n2">click to choose .xls (DBF)</span></label>
-<label class="drop" id="d3">3. Extra rate cards (optional)<br><input type="file" id="f3" accept=".json" hidden><span class="note" id="n3">JSON only (not PDF). Not needed: rate cards are built in</span></label>
+<label class="drop" id="d3">3. Rate card PDFs (optional)<br><input type="file" id="f3" accept=".pdf,.json" multiple hidden><span class="note" id="n3">Franklin PDFs work now; other AMCs being added. Franklin cards to Dec-2026 are built in</span></label>
 </div>
 <div class="row"><label>Lots traded on/after <input type="date" id="nf" value="2026-10-01"></label><span class="note">= confirmed (current-quarter) lots. Older lots are shown as pointers only, because AMCs often pay older lots on the rate in force at payout time.</span><button class="act" id="go">Run comparison</button></div>
 <div class="note" id="msg"></div></div>
@@ -34,7 +34,8 @@ button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius
 <div class="wrap"><table id="tbl"></table></div>
 <p class="note">Expected = average assets × card rate ÷ 100 × days ÷ 365. Additional brokerage is intentional and added to the same folio + scheme. Only trail is compared with the card. Rate cards loaded: <span id="src"></span></p>
 </div></main>
-<script src="rates.js"></script><script src="core.js"></script>
+<script src="rates.js"></script><script src="core.js"></script><script src="cards.js"></script>
+<script type="module">import * as p from "./vendor/pdf.mjs";p.GlobalWorkerOptions.workerSrc="./vendor/pdf.worker.mjs";window.PDFJS=p;</script>
 <script>
 Object.keys(BR.KF_AMC).forEach(function(k){window.AMCNAMES['K'+k]=BR.KF_AMC[k]});
 var S={rows:null,hold:null,rates:JSON.parse(JSON.stringify(window.RATES)),lots:[],tab:'amc',sort:null};
@@ -51,7 +52,18 @@ $('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.l
 pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){var buf=r.result,h=null,note='';
   try{h=BR.parseDBF(buf)}catch(e){var txt=new TextDecoder('utf-8').decode(buf);var n=BR.normalizeHoldings(BR.parseCSV(txt));h=n.rows;note=n.note}
   S.hold=h;$('msg').textContent=h.length.toLocaleString()+' holdings rows loaded'+(note?'. Note: '+note:'')};r.onerror=function(){$('msg').textContent='Could not read holdings file'};r.readAsArrayBuffer(f)});
-pick('f3','d3','n3',function(f){var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);Object.keys(j).forEach(function(k){S.rates[k]=j[k]});$('msg').textContent='Extra rate cards added: '+Object.keys(j).join(', ')}catch(e){$('msg').textContent='Could not read rate file: '+e.message}};r.readAsText(f)});
+$('f3').onchange=async function(e){var files=[].slice.call(e.target.files);if(!files.length)return;var out=[];$('n3').textContent='Reading '+files.length+' file(s)...';
+  for(var i=0;i<files.length;i++){var f=files[i];
+    try{
+      if(/\.json$/i.test(f.name)){var j=JSON.parse(await f.text());Object.keys(j).forEach(function(k){S.rates[k]=j[k]});out.push(f.name+': JSON rates added');continue}
+      if(!window.PDFJS){out.push(f.name+': PDF reader still loading, try again');continue}
+      var r=await CARDS.readCard(window.PDFJS,f,['ABVFM8216C','ARN-263998','ARN263998']);
+      if(r.error){out.push(f.name+': '+r.error)}
+      else if(r.unsupported){out.push(f.name+': read OK but the '+r.amcGuess+' layout is not supported in the browser yet (I am adding AMCs one by one)')}
+      else{var T=S.rates[r.amc].rates;Object.keys(r.rates).forEach(function(a){(T[a]=T[a]||{})[r.quarter]=r.rates[a]});out.push(f.name+': '+r.name+' '+r.from+' to '+r.to+', '+r.count+' funds loaded')}
+    }catch(err){out.push(f.name+': could not read ('+err.message+')')}
+  }
+  e.target.value='';$('d3').classList.add('ok');$('n3').textContent=out.join(' | ');$('msg').textContent='Rate cards updated. Click Run comparison.'};
 $('go').onclick=function(){try{runIt()}catch(e){$('msg').textContent='Error: '+e.message;console.error(e)}};
 function runIt(){
   if(!S.rows||!S.rows.length){$('msg').textContent='No payout file loaded yet. Use box 1 for the payout CSV (CAMS or KFintech); box 2 is only for the holdings file.';return}
