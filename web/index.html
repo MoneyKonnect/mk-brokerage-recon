@@ -43,12 +43,14 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function $(i){return document.getElementById(i)}
 function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
 $('f1').onchange=function(e){var files=[].slice.call(e.target.files);if(!files.length)return;S.rows=S.rows||[];S.ctrl=S.ctrl||0;S.srcs=S.srcs||[];var left=files.length;$('msg').textContent='Reading '+files.length+' file(s)... large files can take 20-30 seconds';
-  files.forEach(function(file){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result),kind='CAMS';
+  files.forEach(function(file){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result),kind='CAMS';var okp=all.length&&(BR.isKfin(all)||all[0].hasOwnProperty('AMC_CODE')&&all[0].hasOwnProperty('BRKAGE_AMT'));if(!okp){S.srcs.push(file.name+' (NOT A PAYOUT FILE, skipped: '+(all.length?Object.keys(all[0]).slice(0,6).join(', '):'empty')+')');if(--left==0){$('n1').textContent=S.srcs.join('; ');$('msg').textContent='Skipped a file that is not a CAMS or KFintech brokerage payout report. '+S.rows.length.toLocaleString()+' payout rows loaded so far.'}return}
     if(BR.isKfin(all)){kind='KFintech';S.rows=S.rows.concat(BR.normalizeKfin(all))}
     else{all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=S.rows.concat(all.filter(function(x){return x.AMC_CODE}))}
     S.srcs.push(file.name+' ('+kind+', '+all.length.toLocaleString()+' rows)');e.target.value='';
     if(--left==0){$('n1').textContent=S.srcs.join('; ');$('d1').classList.add('ok');$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded. Now click Run comparison.'}};r.onerror=function(){$('msg').textContent='Could not read '+file.name};r.readAsText(file)})};
-pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){S.hold=BR.parseDBF(r.result);$('msg').textContent=S.hold.length.toLocaleString()+' holdings rows loaded'};r.readAsArrayBuffer(f)});
+pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){var buf=r.result,h=null,note='';
+  try{h=BR.parseDBF(buf)}catch(e){var txt=new TextDecoder('utf-8').decode(buf);var n=BR.normalizeHoldings(BR.parseCSV(txt));h=n.rows;note=n.note}
+  S.hold=h;$('msg').textContent=h.length.toLocaleString()+' holdings rows loaded'+(note?'. Note: '+note:'')};r.onerror=function(){$('msg').textContent='Could not read holdings file'};r.readAsArrayBuffer(f)});
 pick('f3','d3','n3',function(f){var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);Object.keys(j).forEach(function(k){S.rates[k]=j[k]});$('msg').textContent='Extra rate cards added: '+Object.keys(j).join(', ')}catch(e){$('msg').textContent='Could not read rate file: '+e.message}};r.readAsText(f)});
 $('go').onclick=function(){try{runIt()}catch(e){$('msg').textContent='Error: '+e.message;console.error(e)}};
 function runIt(){

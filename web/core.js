@@ -23,8 +23,10 @@
   // dBASE reader (CAMS holdings file is DBF saved as .xls)
   function parseDBF(buf) {
     var dv = new DataView(buf), u8 = new Uint8Array(buf);
+    if (buf.byteLength < 33 || [0x02,0x03,0x04,0x30,0x83,0x8b,0x8e,0xf5,0xfb].indexOf(u8[0]) < 0) throw new Error('not a DBF file');
     var nrec = dv.getUint32(4, true), hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true);
     var fields = [], p = 32, dec = new TextDecoder('latin1');
+    if (hlen + nrec * rlen > buf.byteLength + 1 || rlen < 2) throw new Error('not a DBF file');
     while (u8[p] !== 0x0d && p < hlen) {
       var name = dec.decode(u8.subarray(p, p + 11)).replace(/\0.*$/, '');
       fields.push({ name: name, len: u8[p + 16] }); p += 32;
@@ -128,6 +130,14 @@
     });
   }
 
-  root.BR = { KF_AMC: KF_AMC, isKfin: isKfin, normalizeKfin: normalizeKfin, parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
+  function normalizeHoldings(rows) {
+    if (!rows.length) return { rows: [], note: 'empty file' };
+    var cols = Object.keys(rows[0]);
+    var fc = ['FOLIOCHK', 'Account Number', 'Folio No', 'Folio Number', 'Folio', 'FOLIO_NO'].filter(function (k) { return cols.indexOf(k) >= 0; })[0];
+    var tc = ['TAX_STATUS', 'Tax Status', 'Investor Category', 'Status', 'Investor Status', 'Category'].filter(function (k) { return cols.indexOf(k) >= 0; })[0];
+    if (!fc) return { rows: [], note: 'No folio column found. Columns: ' + cols.slice(0, 15).join(', ') };
+    return { rows: rows.map(function (r) { return { FOLIOCHK: String(r[fc]).replace(/\.0$/, ''), TAX_STATUS: tc ? r[tc] : '' }; }), note: tc ? '' : 'No client-type column found (folio only)' };
+  }
+  root.BR = { normalizeHoldings: normalizeHoldings, KF_AMC: KF_AMC, isKfin: isKfin, normalizeKfin: normalizeKfin, parseCSV: parseCSV, parseDBF: parseDBF, pd: pd, qkey: qkey, qlabel: qlabel, num: num, clientType: clientType, buildLots: buildLots, compare: compare, aggregate: aggregate };
   if (typeof module !== 'undefined') module.exports = root.BR;
 })(typeof window !== 'undefined' ? window : globalThis);
