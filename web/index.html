@@ -1,8 +1,92 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MK Brokerage Recon</title>
-<style>body{font-family:Arial,sans-serif;max-width:640px;margin:15vh auto;padding:0 20px;color:#1f2937}h1{font-size:22px}p{line-height:1.5;color:#4b5563}.tag{display:inline-block;background:#e0e7ff;color:#1f3864;padding:2px 10px;border-radius:12px;font-size:12px}</style></head>
-<body><span class="tag">MoneyKonnect LLP · ARN-263998</span>
-<h1>Brokerage Reconciliation Tool</h1>
-<p>Compares expected trail brokerage (AMC rate cards × AUM) with AMC payouts, by AMC, scheme, client and lot.</p>
-<p>The upload and comparison screen is being built. Files will be processed in your browser only.</p></body></html>
+<style>
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#f5f6fa;color:#1f2937;font-size:14px}
+header{background:#1f3864;color:#fff;padding:14px 24px}header h1{margin:0;font-size:18px}header span{font-size:12px;opacity:.8}
+main{max-width:1250px;margin:0 auto;padding:18px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:14px}
+.drop{border:2px dashed #cbd5e1;border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:#fafbff}
+.drop.ok{border-color:#16a34a;background:#f0fdf4}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px}.kpi b{display:block;font-size:20px;margin-top:4px}.kpi small{color:#6b7280}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid #eef0f4;text-align:right;white-space:nowrap}
+th{background:#f3f4f6;position:sticky;top:0;cursor:pointer}th:first-child,td:first-child,td.l,th.l{text-align:left}
+.tabs button{border:1px solid #cbd5e1;background:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;margin-right:6px}.tabs button.on{background:#1f3864;color:#fff}
+.b{padding:2px 8px;border-radius:10px;font-size:11px}.ok{color:#166534}.bad{background:#fee2e2;color:#991b1b}.gr{background:#e5e7eb;color:#374151}.wa{background:#fef3c7;color:#92400e}.go{background:#dcfce7;color:#166534}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}input[type=text],select,input[type=date]{padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px}
+.note{font-size:12px;color:#6b7280}.wrap{max-height:560px;overflow:auto;border:1px solid #eef0f4;border-radius:6px}
+button.act{background:#1f3864;color:#fff;border:0;padding:7px 14px;border-radius:6px;cursor:pointer}
+</style></head><body>
+<header><h1>Brokerage Reconciliation</h1><span>MoneyKonnect LLP · ARN-263998 · files are processed in your browser and never uploaded</span></header>
+<main>
+<div class="card"><div class="grid">
+<label class="drop" id="d1">1. Payout CSV (CAMS brokerage report)<br><input type="file" id="f1" accept=".csv" hidden><span class="note" id="n1">click to choose</span></label>
+<label class="drop" id="d2">2. Holdings file (optional, for client type)<br><input type="file" id="f2" hidden><span class="note" id="n2">click to choose .xls (DBF)</span></label>
+<label class="drop" id="d3">3. Extra rate cards (optional .json)<br><input type="file" id="f3" accept=".json" hidden><span class="note" id="n3">rates by AMC, same format as rates.js</span></label>
+</div>
+<div class="row"><label>Lots traded on/after <input type="date" id="nf" value="2026-10-01"></label><span class="note">= confirmed (current-quarter) lots. Older lots are shown as pointers only, because AMCs often pay older lots on the rate in force at payout time.</span><button class="act" id="go">Run comparison</button></div>
+<div class="note" id="msg"></div></div>
+<div id="out" style="display:none">
+<div class="grid" id="kpis"></div><br>
+<div class="tabs" id="tabs"></div><div class="row">
+<input type="text" id="q" placeholder="search client / folio / fund"><select id="st"><option value="">All statuses</option><option value="below">Below card</option><option value="above">Above card</option><option value="gst">GST-like</option><option value="ok">OK</option><option value="nocard">No card</option><option value="addonly">Additional only</option></select>
+<label><input type="checkbox" id="fl"> flagged only</label><button class="act" id="csv">Download CSV</button></div>
+<div class="wrap"><table id="tbl"></table></div>
+<p class="note">Expected = average assets × card rate ÷ 100 × days ÷ 365. Additional brokerage is intentional and added to the same folio + scheme. Only trail is compared with the card. Rate cards loaded: <span id="src"></span></p>
+</div></main>
+<script src="rates.js"></script><script src="core.js"></script>
+<script>
+var S={rows:null,hold:null,rates:JSON.parse(JSON.stringify(window.RATES)),lots:[],tab:'amc',sort:null};
+function inr(n){return(n<0?'-':'')+'₹'+Math.round(Math.abs(n)).toLocaleString('en-IN')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function $(i){return document.getElementById(i)}
+function pick(f,d,n,cb){$(f).onchange=function(e){var file=e.target.files[0];if(!file)return;$(n).textContent=file.name;$(d).classList.add('ok');cb(file)}}
+pick('f1','d1','n1',function(f){var r=new FileReader();r.onload=function(){var all=BR.parseCSV(r.result);S.ctrl=0;all.forEach(function(x){if(!x.AMC_CODE)S.ctrl+=BR.num(x.BRKAGE_AMT)});S.rows=all.filter(function(x){return x.AMC_CODE});$('msg').textContent=S.rows.length.toLocaleString()+' payout rows loaded'};r.readAsText(f)});
+pick('f2','d2','n2',function(f){var r=new FileReader();r.onload=function(){S.hold=BR.parseDBF(r.result);$('msg').textContent=S.hold.length.toLocaleString()+' holdings rows loaded'};r.readAsArrayBuffer(f)});
+pick('f3','d3','n3',function(f){var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);Object.keys(j).forEach(function(k){S.rates[k]=j[k]});$('msg').textContent='Extra rate cards added: '+Object.keys(j).join(', ')}catch(e){$('msg').textContent='Could not read rate file: '+e.message}};r.readAsText(f)});
+$('go').onclick=function(){
+  if(!S.rows){$('msg').textContent='Choose the payout CSV first.';return}
+  var ft={};if(S.hold)S.hold.forEach(function(h){if(h.FOLIOCHK&&!ft[h.FOLIOCHK])ft[h.FOLIOCHK]=BR.clientType(h.TAX_STATUS)});
+  var codes={};S.rows.forEach(function(r){codes[r.AMC_CODE]=1});
+  S.lots=[];S.amcTot={};
+  Object.keys(codes).forEach(function(c){
+    var lots=BR.buildLots(S.rows,c);
+    if(S.rates[c]){BR.compare(lots,S.rates[c],$('nf').value)}
+    else lots.forEach(function(L){L.status='nocard';L.card=null;L.exp=null;L.diff=null;L.fund='Scheme '+L.scheme;L.abbr=null;L.isNew=false});
+    lots.forEach(function(L){L.amc=c;L.ctype=ft[L.folio]||'Unknown'});
+    S.lots=S.lots.concat(lots);
+  });
+  $('out').style.display='block';$('src').textContent=Object.keys(S.rates).map(function(k){return window.AMCNAMES[k]||k}).join(', ');
+  kpis();tabs();render();
+};
+function kpis(){
+  var t=0,a=0,i=0,e=0,cs=0,pp=0,cn=0,pn=0;
+  S.lots.forEach(function(L){t+=L.trail;a+=L.add;i+=L.inc;if(L.status=='below'){if(L.isNew){cs+=-L.diff;cn++}else{pp+=-L.diff;pn++}}if(L.exp!==null)e+=L.exp});
+  var k=[['Trail received',inr(t),S.lots.length.toLocaleString()+' lots, all AMCs'],['Additional received',inr(a),'added to same folio + scheme'],['Incentive / other',inr(i),'not compared'],['Payout file check',inr(t+a+i),S.ctrl?('file total '+inr(S.ctrl)+(Math.abs(S.ctrl-(t+a+i))<2?' - matches':' - DIFFERENCE '+inr(S.ctrl-(t+a+i)))):'no total row in file'],
+  ['Confirmed short',inr(cs),cn+' lots in the new quarter'],['Pointers (older lots)',inr(pp),pn+' lots paid below their own-quarter card']];
+  $('kpis').innerHTML=k.map(function(x){return'<div class="kpi"><small>'+x[0]+'</small><b>'+x[1]+'</b><small>'+x[2]+'</small></div>'}).join('')}
+function tabs(){var T=[['amc','By AMC'],['fund','By scheme'],['client','By client'],['lots','Lots']];
+  $('tabs').innerHTML=T.map(function(t){return'<button class="'+(S.tab==t[0]?'on':'')+'" onclick="S.tab=\''+t[0]+'\';S.sort=null;tabs();render()">'+t[1]+'</button>'}).join('')}
+function badge(L){var m={below:['bad','Below card'],above:['wa','Above card'],gst:['wa','GST-like'],ok:['go','OK'],nocard:['gr','No card'],addonly:['gr','Additional only'],incentive:['gr','Incentive only']}[L.status];return'<span class="b '+m[0]+'">'+m[1]+(L.status=='below'&&!L.isNew?' (pointer)':'')+'</span>'}
+function filtered(){var q=$('q').value.toLowerCase(),st=$('st').value,fl=$('fl').checked;
+  return S.lots.filter(function(L){if(st&&L.status!=st)return false;if(fl&&L.status!='below'&&L.status!='gst')return false;
+    return!q||(L.name+' '+L.folio+' '+L.fund+' '+(window.AMCNAMES[L.amc]||L.amc)).toLowerCase().indexOf(q)>=0})}
+function groupTable(keyFn,head){
+  var g=BR.aggregate(filtered(),null,keyFn);
+  var cols=[['label',head],['trail','Trail'],['add','Additional'],['exp','Expected (carded lots)'],['below','Below-card amount'],['above','Above-card amount'],['lots','Lots'],['flagged','Lots below card']];
+  if(S.sort)g.sort(function(a,b){var x=a[S.sort],y=b[S.sort];return(typeof x=='string'?x.localeCompare(y):y-x)});else g.sort(function(a,b){return b.trail-a.trail});
+  return head2(cols)+'<tbody>'+g.slice(0,2000).map(function(r){return'<tr><td class="l">'+esc(r.label)+'</td><td>'+inr(r.trail)+'</td><td>'+inr(r.add)+'</td><td>'+(r.exp?inr(r.exp):'-')+'</td><td>'+(r.below?inr(r.below):'-')+'</td><td>'+(r.above?inr(r.above):'-')+'</td><td>'+r.lots+'</td><td>'+(r.flagged||'-')+'</td></tr>'}).join('')+'</tbody>'}
+function head2(cols){return'<thead><tr>'+cols.map(function(c,i){return'<th class="'+(i?'':'l')+'" onclick="S.sort=\''+c[0]+'\';render()">'+c[1]+'</th>'}).join('')+'</tr></thead>'}
+function render(){var h;
+  if(S.tab=='amc')h=groupTable(function(L){return{key:L.amc,label:(window.AMCNAMES[L.amc]||L.amc)+(S.rates[L.amc]?'':'  (no rate card loaded)')}},'AMC');
+  else if(S.tab=='fund')h=groupTable(function(L){var a=window.AMCNAMES[L.amc]||L.amc;return{key:L.amc+'|'+L.fund,label:a+' - '+L.fund}},'AMC - scheme');
+  else if(S.tab=='client')h=groupTable(function(L){return{key:L.folio,label:L.name+' · '+L.folio+' · '+L.ctype}},'Client · folio · type');
+  else{var cols=[['td','Trade date'],['amc','AMC'],['fund','Scheme'],['name','Client'],['folio','Folio'],['aum','Avg assets'],['days','Days'],['trailRate','Paid %'],['card','Card %'],['trail','Trail'],['exp','Expected'],['diff','Diff'],['add','Additional'],['status','Status']];
+    var L=filtered();if(S.sort)L.sort(function(a,b){var x=a[S.sort],y=b[S.sort];return(typeof x=='string'?x.localeCompare(y):(y||0)-(x||0))});else L.sort(function(a,b){return b.td-a.td});
+    h=head2(cols)+'<tbody>'+L.slice(0,3000).map(function(r){return'<tr><td class="l">'+(r.td?r.td.toISOString().slice(0,10):'')+'</td><td>'+esc(window.AMCNAMES[r.amc]||r.amc)+'</td><td class="l">'+esc(r.fund)+'</td><td class="l">'+esc(r.name)+'</td><td>'+r.folio+'</td><td>'+inr(r.aum)+'</td><td>'+r.days+'</td><td>'+r.trailRate.toFixed(3)+'</td><td>'+(r.card===null?'-':r.card.toFixed(2))+'</td><td>'+inr(r.trail)+'</td><td>'+(r.exp===null?'-':inr(r.exp))+'</td><td>'+(r.diff===null?'-':inr(r.diff))+'</td><td>'+inr(r.add)+'</td><td>'+badge(r)+'</td></tr>'}).join('')+'</tbody>'}
+  $('tbl').innerHTML=h}
+['q','st','fl'].forEach(function(i){$(i).oninput=render;$(i).onchange=render});
+$('csv').onclick=function(){var L=filtered(),cols=['Trade date','AMC','Scheme','Client','Folio','Client type','Avg assets','Days','Paid rate %','Card rate %','Trail paid','Expected','Diff','Additional','Status'];
+  var lines=[cols.join(',')].concat(L.map(function(r){return[r.td?r.td.toISOString().slice(0,10):'',window.AMCNAMES[r.amc]||r.amc,r.fund,r.name,r.folio,r.ctype,r.aum,r.days,r.trailRate.toFixed(4),r.card===null?'':r.card,r.trail.toFixed(2),r.exp===null?'':r.exp.toFixed(2),r.diff===null?'':r.diff.toFixed(2),r.add.toFixed(2),r.status].map(function(x){return'"'+String(x).replace(/"/g,'""')+'"'}).join(',')}));
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download='brokerage_recon_lots.csv';a.click()};
+</script></body></html>
